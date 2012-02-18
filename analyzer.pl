@@ -20,6 +20,7 @@ my $daemonName = "analyzer";
 my $config = AppConfig->new();
    $config->define("patterns",      {ARGCOUNT => AppConfig::ARGCOUNT_LIST});
    $config->define("redis_server",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
+   $config->define("activemq_server",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("logging",       {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("logpath",       {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("pidpath",       {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
@@ -32,7 +33,9 @@ my $config = AppConfig->new();
                 push( @patterns_to_crawl, $i);
    }
 
+
    my $redis_server  = $config->redis_server;
+   my $activemq_server  = $config->activemq_server;
 
    my $logging       = $config->logging();                           # 1= logging is on
    my $logFilePath   = $config->logpath();                           # log file path
@@ -77,7 +80,7 @@ sub GiveMeNextSourceToAnalyze
 {
        $daemonName = 'test';
 
-        my $stomp = Net::Stomp->new( { hostname => 'activemq.refnat.com', port => '61613'} );
+        my $stomp = Net::Stomp->new( { hostname => $activemq_server, port => '61613'} );
 
         my $frame_connect = Net::Stomp::Frame->new( {
                                                 command => "CONNECT",
