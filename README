@@ -1,8 +1,11 @@
+MQCrawler is a distributed perl plateform for fast crawling web sites
+
+
 
 APACHE ACTIVEMQ SERVER
 
 You need an activemq server with "stomp" protocol activated
-you also avec to specify your activemq server address
+you also need to specify your activemq server address
 into YSpider.conf
 
 
@@ -21,5 +24,4 @@ analyzer.pl : it retrieves the html source (from the "source" topic) and extract
 crawler.pl  : retrieves the urls to crawl from the "crawl" queue and gets the source content and send them to the "source" topic.
 
 when everything is done, you can send the first url to crawl to the "crawl" queue
-
 
