@@ -1,0 +1,25 @@
+
+APACHE ACTIVEMQ SERVER
+
+You need an activemq server with "stomp" protocol activated
+you also avec to specify your activemq server address
+into YSpider.conf
+
+
+REDIS SERVER
+
+A Redis server is needed in order to store already crawled url
+(into the "url" set)
+with Ubuntu, you can "apt-get install redis-server"
+and specify your redis server address into YSpider.conf
+
+PERL PROGRAMS
+
+you have to start in this order :
+master.pl   : retrieves the links (from the "links" queue) to crawl and send the autorized url to crawl to the "crawl" queue   
+analyzer.pl : it retrieves the html source (from the "source" topic) and extracts the links present into this source and send them to the "links" queue 
+crawler.pl  : retrieves the urls to crawl from the "crawl" queue and gets the source content and send them to the "source" topic.
+
+when everything is done, you can send the first url to crawl to the "crawl" queue
+
+
