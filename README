@@ -3,6 +3,7 @@ MQCrawler is a distributed perl plateform for fast crawling web sites
 
 
 APACHE ACTIVEMQ SERVER
+-----------------------
 
 You need an activemq server with "stomp" protocol activated
 you also need to specify your activemq server address
@@ -10,6 +11,7 @@ into YSpider.conf
 
 
 REDIS SERVER
+-----------------------
 
 A Redis server is needed in order to store already crawled url
 (into the "url" set)
@@ -17,11 +19,38 @@ with Ubuntu, you can "apt-get install redis-server"
 and specify your redis server address into YSpider.conf
 
 PERL PROGRAMS
+-----------------------
 
-you have to start in this order :
-master.pl   : retrieves the links (from the "links" queue) to crawl and send the autorized url to crawl to the "crawl" queue   
-analyzer.pl : it retrieves the html source (from the "source" topic) and extracts the links present into this source and send them to the "links" queue 
-crawler.pl  : retrieves the urls to crawl from the "crawl" queue and gets the source content and send them to the "source" topic.
+please, specify as many patterns as you need
+in YSpider.conf
 
-when everything is done, you can send the first url to crawl to the "crawl" queue
 
+then, you have to start in this order :
+
+> perl master.pl
+> perl analyzer.pl
+> perl crawler.pl
+
+
+master.pl   :
+------------------
+ retrieves the links (from the "links" queue) to crawl and send the autorized urls to be crawled to the "crawl" queue   
+
+analyzer.pl : 
+------------------
+ retrieves the html source (from the "source" topic) and extracts the links present into this source and send them to the "links" queue 
+
+ you can write as many analyzer.pl  "clones" for your own purposes, as source code are published into the "source" topic, with persistent message ;)
+
+crawler.pl  : 
+------------------
+
+ retrieves the urls to crawl from the "crawl" queue and gets the source content and send them to the "source" topic.
+ this script forks n times, in order to parallelize http gets.
+
+ you can launch crawler.pl on as many servers as you want/need.
+
+ be carefull, it may DDOS the web sites you wanna crawl.
+
+
+when everything is done, you can send the first url to crawl to the "crawl" queue with a starting url in the body message.
