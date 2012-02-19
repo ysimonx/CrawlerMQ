@@ -12,7 +12,7 @@ use POSIX;
 use File::Pid;
 use AppConfig;
 
-my $daemonName = "crawler";
+my $daemonName = "MQcrawler";
 
 #=======================================
 # Lecture du fichier de config
@@ -21,6 +21,9 @@ my $config = AppConfig->new();
    $config->define("patterns",      {ARGCOUNT => AppConfig::ARGCOUNT_LIST});
    $config->define("redis_server",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("activemq_server",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
+   $config->define("activemq_source",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
+   $config->define("activemq_links",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
+   $config->define("activemq_crawl",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("logging",       {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("logpath",       {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("pidpath",       {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
@@ -36,6 +39,9 @@ my $config = AppConfig->new();
 
    my $redis_server  = $config->redis_server;
    my $activemq_server  = $config->activemq_server;
+   my $activemq_source  = $config->activemq_source;
+   my $activemq_links   = $config->activemq_links;
+   my $activemq_crawl   = $config->activemq_crawl;
 
    my $logging       = $config->logging();                           # 1= logging is on
    my $logFilePath   = $config->logpath();                           # log file path
@@ -68,7 +74,7 @@ sub GiveMeNextURLToCrawl
         	$stomp->connect();
 
         	$stomp->subscribe(
-        	{   destination             => '/queue/crawl',
+        	{   destination             => $activemq_crawl,
                 	'ack'                   => 'client',
                 	'activemq.prefetchSize' => 1,
 
@@ -90,7 +96,7 @@ sub GiveMeNextURLToCrawl
   					command => "SEND",
   					headers => {
                					"correlation-id" => $url,
-               					"destination"    => "/topic/source",
+               					"destination"    => $activemq_source,
 						"persistent"     => 'true'
 	     					}
 					});
@@ -128,8 +134,6 @@ sub GiveMeNextURLToCrawl
         open STDIN,  '/dev/null'   or die "Can't read /dev/null: $!";
         open STDOUT, '>>/dev/null' or die "Can't write to /dev/null: $!";
         open STDERR, '>>/dev/null' or die "Can't write to /dev/null: $!";
-#        defined( my $pid = fork ) or die "Can't fork: $!";
-#        exit if $pid;
 
         # dissociate this process from the controlling terminal that started it and stop being part
         # of whatever process group this process was a part of.
