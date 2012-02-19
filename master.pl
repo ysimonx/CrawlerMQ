@@ -22,6 +22,8 @@ my $daemonName = "MQmaster";
 my $config = AppConfig->new();
    $config->define("patterns",      {ARGCOUNT => AppConfig::ARGCOUNT_LIST});
    $config->define("redis_server",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
+   $config->define("redis_set_urls",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
+   $config->define("redis_set_urls_crawled",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("activemq_server",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("activemq_source",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
    $config->define("activemq_links",  {ARGCOUNT => AppConfig::ARGCOUNT_ONE});
@@ -40,6 +42,8 @@ my $config = AppConfig->new();
 
 
    my $redis_server  = $config->redis_server;
+   my $redis_set_urls = $config->redis_set_urls;
+   my $redis_set_urls_crawled = $config->redis_set_urls_crawled;
 
    my $activemq_server  = $config->activemq_server;
    my $activemq_source  = $config->activemq_source;
@@ -76,30 +80,32 @@ sub GiveMeNextLinksToCrawl
 	    	my $frame = $stomp->receive_frame;
     		my $json_links= $frame->body; # do something here
 		my $url   = $frame->headers->{"correlation-id"};
+		my $ok    = $r->sadd($redis_set_urls_crawled, $url );
+
 		logEntry("pop ".$url);
 		@taboflinks=();
 		@taboflinks = @{decode_json($json_links)};
 		foreach $link (@taboflinks) {
-			if (URL_isAutorised( $link->{"href"} ) eq "true" )
+                        if (URL_isAutorised( $link->{"href"} ) eq "true" )
                         {
-				if (! $r->sismember( "url",  $link->{"href"} )) {
-					# print $link->{"href"}."\n";
-					logEntry("push ".$link->{"href"});
-		                	my $frame_producer = Net::Stomp::Frame->new( {
-                	                	body    => $link->{"href"},
-                       	         		command => "SEND",
-                                		headers => {
-                                        		"destination"    => $activemq_crawl,
-							"correlation-id" => $link->{"href"},
-							"persistent"     => 'true'
-                                        	}
-                			});
-                			$stomp->send_frame($frame_producer);
-					my $ok = $r->sadd( "url", $link->{"href"} );
-				}
-			}	
+                                if (! $r->sismember( $redis_set_urls,  $link->{"href"} ))
+				{
+                                        # print $link->{"href"}."\n";
+                                        logEntry("push ".$link->{"href"});
+                                        my $frame_producer = Net::Stomp::Frame->new( {
+                                                body    => $link->{"href"},
+                                                command => "SEND",
+                                                headers => {
+                                                        "destination"    => $activemq_crawl,
+                                                        "correlation-id" => $link->{"href"},
+                                                        "persistent"     => 'true'
+                                                }
+                                        });
+                                        $stomp->send_frame($frame_producer);
+                                        $ok = $r->sadd($redis_set_urls, $link->{"href"} );
+                                }
+                        }
                 }
-
 		$stomp->ack( { frame => $frame } );
 	}
 	$r->quit;
