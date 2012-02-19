@@ -78,7 +78,6 @@ sub URL_GetBase {
 
 sub GiveMeNextSourceToAnalyze
 {
-       $daemonName = 'test';
 
         my $stomp = Net::Stomp->new( { hostname => $activemq_server, port => '61613'} );
 
@@ -155,8 +154,8 @@ sub GiveMeNextSourceToAnalyze
 	open STDIN,  '/dev/null'   or die "Can't read /dev/null: $!";
 	open STDOUT, '>>/dev/null' or die "Can't write to /dev/null: $!";
 	open STDERR, '>>/dev/null' or die "Can't write to /dev/null: $!";
-	defined( my $pid = fork ) or die "Can't fork: $!";
-	exit if $pid;
+#	defined( my $pid = fork ) or die "Can't fork: $!";
+#	exit if $pid;
 	 
 	# dissociate this process from the controlling terminal that started it and stop being part
 	# of whatever process group this process was a part of.

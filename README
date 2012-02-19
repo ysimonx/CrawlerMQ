@@ -27,9 +27,9 @@ in YSpider.conf
 
 then, you have to start in this order :
 
-> perl master.pl
-> perl analyzer.pl
-> perl crawler.pl
+> perl master.pl &
+> perl analyzer.pl &
+> perl crawler.pl &
 
 
 master.pl   :
