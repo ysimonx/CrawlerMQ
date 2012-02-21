@@ -11,6 +11,7 @@ use Encode;
 use POSIX;
 use File::Pid;
 use AppConfig;
+use URI::URL;
 
 my $daemonName = "MQcrawler";
 
@@ -55,13 +56,14 @@ my $config = AppConfig->new();
    my $logFile       = $logFilePath . $daemonName . ".log";
    my $pidFile       = $pidFilePath . $daemonName . ".pid";
 
+# global variables
 
-
+my @redirects=();
+my @errors404=();
+my @headers=();
 
 sub GiveMeNextURLToCrawl
 {
-   eval {
-
 	my $pid;
 	# Create 10 child processes
 	my $ichild=0;
@@ -71,56 +73,96 @@ sub GiveMeNextURLToCrawl
    		$pid = fork();
    		last unless defined $pid;  # Too many processes already?
    		unless($pid){
-      	# Child code here
-		 my $stomp = Net::Stomp->new( { hostname => $activemq_server, port => '61613' } );
-        	$stomp->connect();
+		eval {
+			# Child code here
+			my $stomp = Net::Stomp->new( { hostname => $activemq_server, port => '61613' } );
+        		$stomp->connect();
+        		$stomp->subscribe(
+        		{   destination             => $activemq_crawl,
+                		'ack'                   => 'client',
+                		'activemq.prefetchSize' => 1,
 
-        	$stomp->subscribe(
-        	{   destination             => $activemq_crawl,
-                	'ack'                   => 'client',
-                	'activemq.prefetchSize' => 1,
+        		});
+        		if ($stomp->can_read({ timeout => '1' }) eq 1) {
+	    			my $frame = $stomp->receive_frame;
+    				my $url= $frame->body; # do something here
+				logEntry("(child $ichild) : crawl de $url");
 
-        	}
-        	);
-        	if ($stomp->can_read({ timeout => '1' }) eq 1) {
+				my $ua = LWP::UserAgent->new;
 
-	    		my $frame = $stomp->receive_frame;
-    			my $url= $frame->body; # do something here
-			logEntry("(child $ichild) : crawl de $url");
-			my $ua = LWP::UserAgent->new;
-        		$ua->timeout(10);
-			my $res = $ua->get($url);
-			if ($res->is_success) {
-				if ( $res->header("content-type") =~  /text\/html/i) {
-					my $source = $res->decoded_content;
-					my $frameproducer = Net::Stomp::Frame->new( {
-  					body    => encode_utf8($source),
-  					command => "SEND",
-  					headers => {
-               					"correlation-id" => $url,
-               					"destination"    => $activemq_source,
-						"persistent"     => 'true'
-	     					}
-					});
-					$stomp->send_frame($frameproducer);
+        			$ua->timeout(10);
+				@redirects = ();
+				$ua->add_handler("response_redirect", sub {  my($response, $ua, $h) = @_;
+                                                                                                my $url      = $response->request->uri;
+                                                                                                my $code     = $response->code;
+                                                                                                my $location = $response->header("location");
+                                                                                                if (($code eq "301")||($code eq "302")) {
+                                                                                                        my $redirect = {};
+                                                                                                        $redirect->{"url"} = $url;
+                                                                                                        $location=url($location, URL_GetBase($url))->abs;
+                                                                                                        $redirect->{"location"} = $location;
+                                                                                                        $redirect->{"code"} = $code;
+                                                                                                        push (@redirects, $redirect);
+                                                                                                };
+                                                                                                return });
+				@errors404 = ();
+				$ua->add_handler("response_header", sub {  my($response, $ua, $h) = @_;
+                                                                                                my $url      = $response->request->uri;
+                                                                                                my $code     = $response->code;
+                                                                                                if ($code eq "404") {
+                                                                                                        push (@errors404, $url);
+                                                                                                };
+                                                                                                return });
 
+
+				my $res = $ua->get($url);
+				if ($res->is_success) {
+					my $url_crawled=$res->request->uri_canonical;
+					if ( $res->header("content-type") =~  /text\/html/i) {
+						my $source = $res->decoded_content;
+
+						@headers=();
+						my $h=$res->headers;
+						$h->remove_header("Link");
+						$h->remove_header("X-Meta-Description");
+						$h->remove_header("X-Meta-Keywords");
+						$h->remove_header("X-Meta-Robots");
+						$h->remove_header("Title");
+						$h->remove_header("Client-Response-Num");
+						$h->scan( sub {
+        							my ($a,$b) = @_;
+        							my $header ={};
+        							$header->{$a}=$b;
+        							push @headers, $header;
+         						} );
+						my $headers_json = to_json(\@headers);
+
+						my $frameproducer = Net::Stomp::Frame->new( {
+  						body    => encode_utf8($source),
+  						command => "SEND",
+  						headers => {
+               						"http_headers" => $headers_json,
+               						"correlation-id" => $url_crawled,
+               						"destination"    => $activemq_source,
+							"persistent"     => 'true'
+	     						}
+						});
+						$stomp->send_frame($frameproducer);
+					}
 				}
+    				$stomp->ack( { frame => $frame } );
 			}
-    			$stomp->ack( { frame => $frame } );
-
-		}
-		$stomp->disconnect;
+			$stomp->disconnect;
+		};
+		logEntry($@) if $@;
         	exit;
-	}
+		}
 	}
 	# wait() for kids
 	while(($pid = wait()) > 0){
    		# Check $? here
 	}
-  };
-  logEntry($@) if $@;
-
-  return;
+	return;
 }
  
 #################################################################################################
@@ -189,4 +231,13 @@ END {
     if ($logging) { close LOG }
     $pidfile->remove if defined $pidfile;
 }
-                             
+                            
+sub URL_GetBase {
+my ($url) = @_;
+        my $base = url($url)->scheme."://".url($url)->host;
+        if (url($url)->port != "80") { $base = $base.":".url($url)->port }
+        $base = $base."/";
+        return $base;
+}
+
+ 
