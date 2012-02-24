@@ -1,3 +1,8 @@
+2012-02-24
+
+send into "source" topic/queue http-headers, status-code, redirects
+
+
 2012-02-19
 
 some improvements for configuration files

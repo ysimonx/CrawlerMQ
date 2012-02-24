@@ -38,34 +38,26 @@ my $config = AppConfig->new();
    foreach $i (@$patterns) {
                 push( @patterns_to_crawl, $i);
    }
-
-
-   my $redis_server  = $config->redis_server;
+   my $redis_server     = $config->redis_server;
    my $activemq_server  = $config->activemq_server;
    my $activemq_source  = $config->activemq_source;
    my $activemq_links   = $config->activemq_links;
    my $activemq_crawl   = $config->activemq_crawl;
-
-   my $logging       = $config->logging();                           # 1= logging is on
-   my $logFilePath   = $config->logpath();                           # log file path
-   my $pidFilePath   = $config->pidpath();                           # PID file path
-
-   $logFilePath   =~ s/([^\/])$/$1\//; # add slash / if not specified in config 
-   $pidFilePath   =~ s/([^\/])$/$1\//; # add slash / if not specified in config
-
-   my $logFile       = $logFilePath . $daemonName . ".log";
-   my $pidFile       = $pidFilePath . $daemonName . ".pid";
+   my $logging          = $config->logging();                           # 1= logging is on
+   my $logFilePath      = $config->logpath();                           # log file path
+   my $pidFilePath      = $config->pidpath();                           # PID file path
+      $logFilePath      =~ s/([^\/])$/$1\//; # add slash / if not specified in config 
+      $pidFilePath      =~ s/([^\/])$/$1\//; # add slash / if not specified in config
+   my $logFile          = $logFilePath . $daemonName . ".log";
+   my $pidFile          = $pidFilePath . $daemonName . ".pid";
 
 # global variables
-
 my @redirects=();
-my @errors404=();
 my @headers=();
 
 sub GiveMeNextURLToCrawl
 {
 	my $pid;
-	# Create 10 child processes
 	my $ichild=0;
 	for (1..10){
 		$ichild ++;
@@ -73,95 +65,69 @@ sub GiveMeNextURLToCrawl
    		$pid = fork();
    		last unless defined $pid;  # Too many processes already?
    		unless($pid){
+		my $stomp = Net::Stomp->new( { hostname => $activemq_server, port => '61613' } );
 		eval {
 			# Child code here
-			my $stomp = Net::Stomp->new( { hostname => $activemq_server, port => '61613' } );
         		$stomp->connect();
-        		$stomp->subscribe(
-        		{   destination             => $activemq_crawl,
-                		'ack'                   => 'client',
-                		'activemq.prefetchSize' => 1,
-
-        		});
+        		$stomp->subscribe({destination  => $activemq_crawl, 'ack' => 'client', 'activemq.prefetchSize' => 1 });
         		if ($stomp->can_read({ timeout => '1' }) eq 1) {
 	    			my $frame = $stomp->receive_frame;
-    				my $url= $frame->body; # do something here
+    				my $url= $frame->body; 
 				logEntry("(child $ichild) : crawl de $url");
 
 				my $ua = LWP::UserAgent->new;
-
         			$ua->timeout(10);
 				@redirects = ();
 				$ua->add_handler("response_redirect", sub {  my($response, $ua, $h) = @_;
-                                                                                                my $url      = $response->request->uri;
-                                                                                                my $code     = $response->code;
-                                                                                                my $location = $response->header("location");
-                                                                                                if (($code eq "301")||($code eq "302")) {
-                                                                                                        my $redirect = {};
-                                                                                                        $redirect->{"url"} = $url;
-                                                                                                        $location=url($location, URL_GetBase($url))->abs;
-                                                                                                        $redirect->{"location"} = $location;
-                                                                                                        $redirect->{"code"} = $code;
-                                                                                                        push (@redirects, $redirect);
-                                                                                                };
-                                                                                                return });
-				@errors404 = ();
-				$ua->add_handler("response_header", sub {  my($response, $ua, $h) = @_;
-                                                                                                my $url      = $response->request->uri;
-                                                                                                my $code     = $response->code;
-                                                                                                if ($code eq "404") {
-                                                                                                        push (@errors404, $url);
-                                                                                                };
-                                                                                                return });
-
+                                                                                 my $url      = $response->request->uri;
+                                                                                 my $code     = $response->code;
+                                                                                 my $location = $response->header("location");
+                                                                                 if (($code eq "301")||($code eq "302")) {
+                                                                                        my $redirect = {};
+                                                                                        $redirect->{"url"} = $url->as_string;
+                                                                                        $location=url($location, URL_GetBase($url))->abs;
+                                                                                        $redirect->{"location"} = $location->as_string;
+                                                                                        $redirect->{"code"} = $code;
+                                                                                        push (@redirects, $redirect);
+                                                                                 };
+                                                                            return });
 
 				my $res = $ua->get($url);
-				if ($res->is_success) {
-					my $url_crawled=$res->request->uri_canonical;
-					if ( $res->header("content-type") =~  /text\/html/i) {
-						my $source = $res->decoded_content;
+					my $source = "";
+					if ( $res->header("content-type") =~  /text\/htm/i) {
+					#if ( $res->header("content-type") =~  /.*text\/htm.*/i) {
+						$source = $res->decoded_content;
+					}
+					@headers=();
+					my $h=$res->headers;
+					$h->remove_header("Link");  $h->remove_header("X-Meta-Description");  $h->remove_header("X-Meta-Keywords");  $h->remove_header("X-Meta-Robots");
+					$h->remove_header("Title");  $h->remove_header("Client-Response-Num");
+					$h->scan( sub {  my ($a,$b) = @_;  my $header ={};  $header->{$a}=$b;  push @headers, $header;  } );
 
-						@headers=();
-						my $h=$res->headers;
-						$h->remove_header("Link");
-						$h->remove_header("X-Meta-Description");
-						$h->remove_header("X-Meta-Keywords");
-						$h->remove_header("X-Meta-Robots");
-						$h->remove_header("Title");
-						$h->remove_header("Client-Response-Num");
-						$h->scan( sub {
-        							my ($a,$b) = @_;
-        							my $header ={};
-        							$header->{$a}=$b;
-        							push @headers, $header;
-         						} );
-						my $headers_json = to_json(\@headers);
-
-						my $frameproducer = Net::Stomp::Frame->new( {
+					my $frameproducer = Net::Stomp::Frame->new( {
   						body    => encode_utf8($source),
   						command => "SEND",
-  						headers => {
-               						"http_headers" => $headers_json,
-               						"correlation-id" => $url_crawled,
-               						"destination"    => $activemq_source,
-							"persistent"     => 'true'
+  						headers => {  "mqcrawler.initial_url"   => $frame->body,
+							"mqcrawler.final_url"           => $res->request->uri_canonical->as_string,
+               						"mqcrawler.redirects" 		=> to_json(\@redirects),
+               						"mqcrawler.http_headers" 	=> to_json(\@headers),
+               						"mqcrawler.status_code" 	=> $res->code,
+               						"correlation-id" 		=> $frame->body,
+               						"destination"    		=> $activemq_source,
+							"persistent"     		=> 'true'
 	     						}
 						});
-						$stomp->send_frame($frameproducer);
-					}
-				}
-    				$stomp->ack( { frame => $frame } );
+					$stomp->send_frame($frameproducer);
+    					$stomp->ack( { frame => $frame } );
 			}
-			$stomp->disconnect;
 		};
 		logEntry($@) if $@;
+		eval {  $stomp->disconnect; };
         	exit;
 		}
 	}
 	# wait() for kids
-	while(($pid = wait()) > 0){
-   		# Check $? here
-	}
+	while(($pid = wait()) > 0){  sleep(0.2); }
 	return;
 }
  
@@ -189,7 +155,6 @@ sub GiveMeNextURLToCrawl
 
         # create pid file in /var/run/
         my $pidfile = File::Pid->new( { file => $pidFile, } );
-
         $pidfile->write or die "Can't write PID file, /dev/null: $!";
 
         # turn on logging
@@ -208,7 +173,6 @@ sub GiveMeNextURLToCrawl
     }
 
     logEntry("daemon stopped");
-
     exit;
 
 # add a line to the log file
